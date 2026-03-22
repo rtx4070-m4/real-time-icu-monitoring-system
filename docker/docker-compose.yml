@@ -1,0 +1,73 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════
+#  ICU Monitoring System — Docker Compose
+#  Profiles:
+#    default  → SQLite (dev/demo)
+#    prod     → PostgreSQL (production)
+# ══════════════════════════════════════════════
+
+services:
+
+  # ── ICU Backend API ────────────────────────
+  icu-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: icu-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL:   ${DATABASE_URL:-sqlite:////data/icu.db}
+      API_HOST:       "0.0.0.0"
+      API_PORT:       "8000"
+      LOG_LEVEL:      ${LOG_LEVEL:-INFO}
+      SIM_INTERVAL:   ${SIM_INTERVAL:-2.0}
+      PATIENT_COUNT:  ${PATIENT_COUNT:-8}
+      CORS_ORIGINS:   "*"
+    volumes:
+      - icu-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  # ── Nginx static frontend ──────────────────
+  icu-frontend:
+    image: nginx:alpine
+    container_name: icu-frontend
+    ports:
+      - "3000:80"
+    volumes:
+      - ../frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - icu-api
+    restart: unless-stopped
+
+  # ── PostgreSQL (optional, use with prod profile) ──
+  icu-db:
+    image: postgres:16-alpine
+    container_name: icu-postgres
+    profiles:
+      - prod
+    environment:
+      POSTGRES_DB:       icu
+      POSTGRES_USER:     icu_user
+      POSTGRES_PASSWORD: icu_secret
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U icu_user -d icu"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  icu-data:
+  pg-data:

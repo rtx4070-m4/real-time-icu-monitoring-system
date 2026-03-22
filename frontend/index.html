@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ICU Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700;900&display=swap" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════  HEADER  ═══════════════════════ -->
+<header class="hdr">
+  <div class="hdr-left">
+    <div class="hdr-logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="12" stroke="var(--accent)" stroke-width="1.5"/>
+        <path d="M7 14h4l2-5 3 10 2-8 2 3h1" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div>
+      <h1 class="hdr-title">ICU COMMAND CENTER</h1>
+      <p class="hdr-sub">Real-Time Smart Monitoring System</p>
+    </div>
+  </div>
+  <div class="hdr-center">
+    <div class="ws-status" id="wsStatus">
+      <span class="ws-dot" id="wsDot"></span>
+      <span id="wsLabel">Connecting…</span>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="stat-chip" id="chipTotal">
+      <span class="chip-val" id="statTotal">—</span>
+      <span class="chip-lbl">PATIENTS</span>
+    </div>
+    <div class="stat-chip critical" id="chipCrit">
+      <span class="chip-val" id="statCrit">—</span>
+      <span class="chip-lbl">CRITICAL</span>
+    </div>
+    <div class="stat-chip warn" id="chipWarn">
+      <span class="chip-val" id="statAlert">—</span>
+      <span class="chip-lbl">ALERTS</span>
+    </div>
+    <div class="clock" id="clock"></div>
+  </div>
+</header>
+
+<!-- ═══════════════════════  LAYOUT  ═══════════════════════ -->
+<main class="layout">
+
+  <!-- ── LEFT: Patient grid ── -->
+  <section class="panel patients-panel">
+    <div class="panel-hdr">
+      <span class="panel-title">PATIENT MONITORING</span>
+      <div class="sort-bar">
+        <button class="sort-btn active" data-sort="priority">PRIORITY</button>
+        <button class="sort-btn" data-sort="name">NAME</button>
+        <button class="sort-btn" data-sort="bed">BED</button>
+      </div>
+    </div>
+    <div class="patient-grid" id="patientGrid">
+      <!-- populated by JS -->
+    </div>
+  </section>
+
+  <!-- ── RIGHT: Alerts + chart ── -->
+  <aside class="panel side-panel">
+
+    <!-- Priority queue -->
+    <div class="sub-panel">
+      <div class="panel-hdr">
+        <span class="panel-title">TRIAGE QUEUE</span>
+        <span class="badge" id="queueBadge">0</span>
+      </div>
+      <ol class="triage-list" id="triageList"></ol>
+    </div>
+
+    <!-- Live chart for selected patient -->
+    <div class="sub-panel chart-panel">
+      <div class="panel-hdr">
+        <span class="panel-title">VITALS TREND — <span id="chartPatientName">select patient</span></span>
+      </div>
+      <canvas id="vitalsChart" height="180"></canvas>
+      <p class="chart-hint" id="chartHint">Click any patient card to view trend.</p>
+    </div>
+
+    <!-- Alert feed -->
+    <div class="sub-panel alert-panel">
+      <div class="panel-hdr">
+        <span class="panel-title">ALERT FEED</span>
+        <button class="clear-btn" id="clearAlerts">CLEAR</button>
+      </div>
+      <div class="alert-feed" id="alertFeed"></div>
+    </div>
+
+  </aside>
+</main>
+
+<!-- Chart.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

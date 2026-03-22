@@ -1,0 +1,302 @@
+version: '3.9'
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ICU Real-Time Monitoring System – Docker Compose
+# Services: Kafka · PostgreSQL · C++ Core · Rust Alert · Python AI ·
+#           R Stats · Julia Kalman · Java Backend · React Frontend
+# ══════════════════════════════════════════════════════════════════════════════
+
+networks:
+  icu-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres-data:
+  kafka-data:
+  zookeeper-data:
+
+services:
+
+  # ── ZooKeeper (Kafka dependency) ──────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: icu-zookeeper
+    networks: [icu-net]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    healthcheck:
+      test:     ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout:  5s
+      retries:  10
+    restart: unless-stopped
+
+  # ── Apache Kafka ──────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: icu-kafka
+    networks: [icu-net]
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID:                        1
+      KAFKA_ZOOKEEPER_CONNECT:                zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:   PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS:             PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENERS:                        PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME:       PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE:        "true"
+      KAFKA_LOG_RETENTION_HOURS:              48
+      KAFKA_LOG_SEGMENT_BYTES:                1073741824
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:     ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout:  10s
+      retries:  15
+    restart: unless-stopped
+
+  # ── Kafka topic initialiser (runs once) ───────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: icu-kafka-init
+    networks: [icu-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: |
+      bash -c "
+        echo 'Creating Kafka topics...'
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic icu.vitals --partitions 4 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic icu.alerts --partitions 2 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic icu.predictions --partitions 2 --replication-factor 1
+        echo 'Topics created:'
+        kafka-topics --bootstrap-server kafka:9092 --list
+      "
+    restart: "no"
+
+  # ── PostgreSQL Database ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: icu-postgres
+    networks: [icu-net]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB:       icu_db
+      POSTGRES_USER:     icu_user
+      POSTGRES_PASSWORD: icu_pass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/migrations/V1__initial_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U icu_user -d icu_db"]
+      interval: 10s
+      timeout:  5s
+      retries:  10
+    restart: unless-stopped
+
+  # ── C++ Core Engine (multithreaded vitals simulation) ────────────────────
+  core-engine:
+    build:
+      context:    ./core-engine
+      dockerfile: Dockerfile
+    container_name: icu-core-engine
+    networks:    [icu-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS:       kafka:9092
+      KAFKA_VITALS_TOPIC:  icu.vitals
+      KAFKA_ALERTS_TOPIC:  icu.alerts
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  # ── Rust Alert Engine (event-driven alert detection) ─────────────────────
+  alert-engine:
+    build:
+      context:    ./alert-engine
+      dockerfile: Dockerfile
+    container_name: icu-alert-engine
+    networks:    [icu-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS:       kafka:9092
+      KAFKA_VITALS_TOPIC:  icu.vitals
+      KAFKA_ALERTS_TOPIC:  icu.alerts
+      KAFKA_GROUP_ID:      icu-alert-engine
+      BACKEND_URL:         http://backend-api:8080
+      RUST_LOG:            info
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  # ── Python AI Module (ML deterioration prediction) ───────────────────────
+  ai-python:
+    build:
+      context:    ./ai-module/python
+      dockerfile: Dockerfile
+    container_name: icu-ai-python
+    networks:    [icu-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_BROKERS:      kafka:9092
+      KAFKA_VITALS_TOPIC: icu.vitals
+      AI_API_PORT:        8082
+    healthcheck:
+      test:     ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout:  10s
+      retries:  5
+      start_period: 60s   # Model training takes ~20s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  # ── R Statistical Analysis Module ─────────────────────────────────────────
+  ai-r:
+    build:
+      context:    ./ai-module/r
+      dockerfile: Dockerfile
+    container_name: icu-ai-r
+    networks:    [icu-net]
+    ports:
+      - "8083:8083"
+    environment:
+      R_API_PORT: 8083
+    healthcheck:
+      test:     ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 30s
+      timeout:  10s
+      retries:  5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Julia Kalman Filter Module ────────────────────────────────────────────
+  ai-julia:
+    build:
+      context:    ./ai-module/julia
+      dockerfile: Dockerfile
+    container_name: icu-ai-julia
+    networks:    [icu-net]
+    ports:
+      - "8084:8084"
+    environment:
+      JULIA_API_PORT: 8084
+    healthcheck:
+      test:     ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout:  10s
+      retries:  5
+      start_period: 45s
+    restart: unless-stopped
+
+  # ── Java Spring Boot Backend API ─────────────────────────────────────────
+  backend-api:
+    build:
+      context:    ./backend-api
+      dockerfile: Dockerfile
+    container_name: icu-backend-api
+    networks:    [icu-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST:         postgres
+      DB_PORT:         5432
+      DB_NAME:         icu_db
+      DB_USER:         icu_user
+      DB_PASS:         icu_pass
+      KAFKA_BROKERS:   kafka:9092
+      SERVER_PORT:     8080
+      AI_PYTHON_URL:   http://ai-python:8082
+      AI_JULIA_URL:    http://ai-julia:8084
+      JWT_SECRET:      ICU_SECURE_JWT_SECRET_KEY_256_BITS_MINIMUM_REQUIRED
+    healthcheck:
+      test:     ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 20s
+      timeout:  10s
+      retries:  10
+      start_period: 60s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options: { max-size: "20m", max-file: "5" }
+
+  # ── React Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context:    ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: http://localhost:8080
+        REACT_APP_WS_URL:  http://localhost:8080
+        REACT_APP_AI_URL:  http://localhost:8082
+    container_name: icu-frontend
+    networks:    [icu-net]
+    depends_on:
+      - backend-api
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  # ── Kafka UI (optional, for debugging) ───────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: icu-kafka-ui
+    networks:    [icu-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME:            local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    restart: unless-stopped
+    profiles: ["debug"]
+
+  # ── pgAdmin (optional, for debugging) ────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: icu-pgadmin
+    networks:    [icu-net]
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@icu.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    restart: unless-stopped
+    profiles: ["debug"]

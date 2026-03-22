@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: icu-backend-api
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:icu_db}
+    username: ${DB_USER:icu_user}
+    password: ${DB_PASS:icu_pass}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:kafka:9092}
+    consumer:
+      group-id: ${KAFKA_GROUP:icu-backend}
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  compression:
+    enabled: true
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET:ICU_JWT_SECRET_KEY_MUST_BE_AT_LEAST_256_BITS_LONG_FOR_HMAC_SHA256}
+  expiration-ms: 86400000
+
+# Kafka topics
+kafka:
+  topics:
+    vitals: ${KAFKA_VITALS_TOPIC:icu.vitals}
+    alerts: ${KAFKA_ALERTS_TOPIC:icu.alerts}
+  consumer:
+    group-id: icu-backend
+
+# AI service URLs
+ai:
+  python:
+    url: ${AI_PYTHON_URL:http://ai-python:8082}
+  julia:
+    url: ${AI_JULIA_URL:http://ai-julia:8084}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.icu: INFO
+    org.springframework.kafka: WARN
+    org.hibernate.SQL: WARN
